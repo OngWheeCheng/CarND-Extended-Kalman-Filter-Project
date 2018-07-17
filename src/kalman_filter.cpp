@@ -3,7 +3,7 @@
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-// Please note that the Eigen library does not initialize 
+// Please note that the Eigen library does not initialize
 // VectorXd or MatrixXd objects with zeros upon creation.
 
 KalmanFilter::KalmanFilter() {}
@@ -25,6 +25,9 @@ void KalmanFilter::Predict() {
   TODO:
     * predict the state
   */
+  x_ = F_ * x_;
+  MatrixXd Ft = F_.transpose();
+  P_ = F_ * P_ * Ft + Q_;
 }
 
 void KalmanFilter::Update(const VectorXd &z) {
@@ -32,6 +35,44 @@ void KalmanFilter::Update(const VectorXd &z) {
   TODO:
     * update the state by using Kalman Filter equations
   */
+  VectorXd y = z - H_ * x_;
+  MatrixXd Ht = H_.transpose();
+  MatrixXd S = H_ * P_ * Ht + R_;
+  MatrixXd Si = S.inverse();
+  MatrixXd K = P_ * Ht * Si;
+
+  //new estimate
+  x_ = x_ + (K * y);
+  long x_size = x_.size();
+  MatrixXd I = MatrixXd::Identity(x_size, x_size);
+  P_ = (I - K * H_) * P_;
+}
+
+VectorXd RadarCartesianToPolar(const VectorXd &in){
+  /*
+   * convert radar measurements from cartesian coordinates (x, y, vx, vy) to
+   * polar (rho, phi, rho_dot) coordinates
+  */
+  float px, py, vx, vy;
+  px = in[0];
+  py = in[1];
+  vx = in[2];
+  vy = in[3];
+
+  float rho, phi, rho_dot;
+  rho = sqrt(px*px + py*py);
+  phi = atan2(py, px);  // returns values between -pi and pi
+
+  //check division by zero
+  if (fabs(rho) < 0.0001)
+    rho = 0.0001;
+
+  rho_dot = (px * vx + py * vy) / rho;
+
+  VectorXd z_pred = VectorXd(3);
+  z_pred << rho, phi, rho_dot;
+
+  return z_pred;
 }
 
 void KalmanFilter::UpdateEKF(const VectorXd &z) {
@@ -39,4 +80,27 @@ void KalmanFilter::UpdateEKF(const VectorXd &z) {
   TODO:
     * update the state by using Extended Kalman Filter equations
   */
+  // convert radar measurements from cartesian coordinates (x, y, vx, vy) to polar (rho, phi, rho_dot).
+  VectorXd z_pred = RadarCartesianToPolar(x_);
+  VectorXd y = z - z_pred;
+
+  // normalize the angle between -pi to pi
+  while (y(1) > M_PI)
+    y(1) -= M_PI;
+
+  while (y(1) < -M_PI)
+    y(1) += M_PI;
+
+  // identical to KalmanFilter::Update()
+  MatrixXd Ht = H_.transpose();
+  MatrixXd PHt = P_ * Ht;
+  MatrixXd S = H_ * PHt + R_;
+  MatrixXd Si = S.inverse();
+  MatrixXd K = PHt * Si;
+
+  //new estimate
+  x_ = x_ + (K * y);
+  long x_size = x_.size();
+  MatrixXd I = MatrixXd::Identity(x_size, x_size);
+  P_ = (I - K * H_) * P_;
 }
